@@ -5,7 +5,7 @@ from PIL import ImageTk, ImageGrab, Image
 import os
 
 # TOOLS
-LINE, RECTANGLE, CIRCLE, TEXT, FREE, GRID, UNDO, SAVE, COLOR = list(range(9))
+LINE, RECTANGLE, CIRCLE, ARC, TEXT, FREE, ARRAY, GRID, UNDO, SAVE, COLOR = list(range(11))
 
 # path to background image
 path = os.path.join('.', 'MTRAINIER.jpg')
@@ -13,8 +13,25 @@ path = os.path.join('.', 'MTRAINIER.jpg')
 
 # history stack
 HISTORY = list()
+DRAW_WIDTH = 3
 
 root = Tk()
+
+class ARCpopupWindow(object):
+    def __init__(self,master):
+        top=self.top=Toplevel(master)
+        self.tkvar = StringVar(root)
+        choices = {'arc', 'chord', 'pieslice'}
+        self.tkvar.set('pieslice')  # set the default option
+        self.popupMenu = OptionMenu(top, self.tkvar, *choices)
+        Label(top, text="Choose a dish").pack()
+        self.popupMenu.pack()
+        self.b=Button(top,text='Ok',command=self.cleanup)
+        self.b.pack()
+
+    def cleanup(self):
+        self.value = self.tkvar.get()
+        self.top.destroy()
 
 class popupWindow(object):
     def __init__(self,master):
@@ -77,13 +94,14 @@ class Paint:
         if self._tool is None or self._obj is None:
             return
         x, y = self.lastx, self.lasty
-        if self._tool in (LINE, RECTANGLE, CIRCLE, TEXT, GRID, UNDO, SAVE, COLOR):
+        if self._tool in (LINE, RECTANGLE, CIRCLE, ARC, TEXT, GRID, UNDO, SAVE, COLOR):
             self.canvas.coords(self._obj, (x, y, event.x, event.y))
-        else:
-            x1, y1 = (event.x - 1), (event.y - 1)
-            x2, y2 = (event.x + 1), (event.y + 1)
-            print x1, x2, ' -- ', y1, y2
-            self._obj = self.canvas.create_oval(x1, y1, x2, y2, fill="red")
+        if self._tool == ARRAY:
+            self._obj = self.canvas.create_line((x, y, event.x, event.y), fill=self.FILL, width=1, smooth=True)
+            HISTORY.append(self._obj)
+        elif self._tool == FREE:
+            self._obj = self.canvas.create_line((x, y, event.x, event.y), fill=self.FILL, width=DRAW_WIDTH, smooth=True)
+            self.lastx, self.lasty = event.x, event.y
             HISTORY.append(self._obj)
 
     def set_background(self):
@@ -97,36 +115,49 @@ class Paint:
             return
         x, y = event.x, event.y
         if self._tool == LINE:
-            self._obj = self.canvas.create_line((x, y, x, y), fill=self.FILL)
+            self._obj = self.canvas.create_line((x, y, x, y), fill=self.FILL, width=DRAW_WIDTH)
             HISTORY.append(self._obj)
         if self._tool == RECTANGLE:
-            self._obj = self.canvas.create_rectangle((x, y, x, y), fill=self.FILL)
+            self._obj = self.canvas.create_rectangle((x, y, x, y), fill=self.FILL, width=DRAW_WIDTH)
             HISTORY.append(self._obj)
         if self._tool == CIRCLE:
-            self._obj = self.canvas.create_oval((x, y, x, y), fill=self.FILL)
+            self._obj = self.canvas.create_oval((x, y, x, y), fill=self.FILL, width=DRAW_WIDTH)
+            HISTORY.append(self._obj)
+        if self._tool == ARC:
+            self._obj = self.canvas.create_arc(x, y, x, y, fill=self.FILL, width=DRAW_WIDTH)
+            self.w = ARCpopupWindow(self.canvas)
+            self.canvas.wait_window(self.w.top)
+            self.canvas.itemconfig(self._obj, style=self.w.value)
             HISTORY.append(self._obj)
         if self._tool == TEXT:
-            self._obj = self.canvas.create_text(x, y, fill=self.FILL)
+            self._obj = self.canvas.create_text(x, y, fill=self.FILL, )
             self.w = popupWindow(self.canvas)
             self.canvas.wait_window(self.w.top)
             self.canvas.itemconfig(self._obj, text=self.w.value)
             HISTORY.append(self._obj)
         if self._tool == GRID:
+            height = self.canvas.winfo_height()
+            width = self.canvas.winfo_width()
             for i in range(10):
-                self.canvas.create_line(50 * i, 0, 50 * i, 400)
-                self.canvas.create_line(0, 50 * i, 400, 50 * i)
+                # horizontal
+                self.canvas.create_line((width / 10) * i, 0, (width / 10) * i, height, fill='red')
+                # verticle
+                self.canvas.create_line(0, (height / 10) * i, width, (height / 10) * i, fill='red')
         if self._tool == UNDO:
             try:
                 act = HISTORY.pop()
                 self.canvas.delete(act)
             except IndexError as e:
                 print e
-        elif self._tool == SAVE:
+        if self._tool == SAVE:
             x=root.winfo_rootx()+self.canvas.winfo_x()
             y=root.winfo_rooty()+self.canvas.winfo_y()
             x1=x+self.canvas.winfo_width()
             y1=y+self.canvas.winfo_height()
             ImageGrab.grab().crop((x,y,x1,y1)).save("out.png")
+        elif self._tool == COLOR:
+            color = askcolor()
+            self.FILL = color[1]
 
         self.lastx, self.lasty = x, y
 
@@ -141,7 +172,7 @@ class Tool:
 
         frame = Frame(parent)
         self._curr_tool = None
-        for i, (text, t) in enumerate((('Line', LINE), ('Rect', RECTANGLE), ('Circ', CIRCLE), ('Text', TEXT), ('Free', FREE), ('Grid', GRID), ('Undo', UNDO), ('SAVE', SAVE), ('Color', COLOR))):
+        for i, (text, t) in enumerate((('Line', LINE), ('Rect', RECTANGLE), ('Circ', CIRCLE), ('Arc', ARC), ('Text', TEXT), ('Free', FREE), ('Array', ARRAY), ('Grid', GRID), ('Undo', UNDO), ('SAVE', SAVE), ('Color', COLOR))):
             lbl = Label(frame, text=text, width=5, relief='raised')
             lbl._tool = t
             lbl.bind('<Button-1>', self.update_tool)
@@ -164,6 +195,7 @@ canvas = Canvas(highlightbackground='black')
 whiteboard = Paint(canvas)
 tool = Tool(whiteboard)
 canvas.pack(fill='both', expand=True, padx=6, pady=6, anchor='w')
+
 img = Image.open(path)
 img = ImageTk.PhotoImage(img)
 Paint.canvas_image = canvas.create_image((0, 0), image=img, anchor="nw")
